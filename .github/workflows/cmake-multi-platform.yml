@@ -12,29 +12,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Release]
-        c_compiler: [gcc, clang, cl]
         enable_jemalloc: [ON, OFF]
         include:
-          - os: windows-latest
-            c_compiler: cl
-            cpp_compiler: cl
           - os: ubuntu-latest
             c_compiler: gcc
             cpp_compiler: g++
           - os: ubuntu-latest
             c_compiler: clang
             cpp_compiler: clang++
+          - os: macos-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
         exclude:
           - os: windows-latest
-            c_compiler: gcc
-          - os: windows-latest
-            c_compiler: clang
-          - os: ubuntu-latest
-            c_compiler: cl
-          - os: windows-latest
-            enable_jemalloc: ON  # skip jemalloc on Windows
+            enable_jemalloc: ON  # Skip jemalloc on Windows
 
     steps:
     - uses: actions/checkout@v4
@@ -44,41 +40,44 @@ jobs:
       shell: bash
       run: echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-    - name: Install pkg-config and jemalloc (Ubuntu only)
+    - name: Install pkg-config and jemalloc (Ubuntu)
       if: matrix.os == 'ubuntu-latest' && matrix.enable_jemalloc == 'ON'
       run: |
         sudo apt-get update
         sudo apt-get install -y pkg-config libjemalloc-dev
 
+    - name: Install jemalloc (macOS)
+      if: matrix.os == 'macos-latest' && matrix.enable_jemalloc == 'ON'
+      run: |
+        brew install jemalloc
+
     - name: Configure CMake
-      shell: bash
       run: |
         cmake -B "${{ steps.strings.outputs.build-output-dir }}" \
-              -DCMAKE_CXX_COMPILER="${{ matrix.cpp_compiler }}" \
-              -DCMAKE_C_COMPILER="${{ matrix.c_compiler }}" \
-              -DCMAKE_BUILD_TYPE="${{ matrix.build_type }}" \
-              -DENABLE_JEMALLOC=${{ matrix.enable_jemalloc }} \
+              -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
+              -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }} \
+              -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+              -DUSE_JEMALLOC=${{ matrix.enable_jemalloc }} \
               -S "${{ github.workspace }}"
 
     - name: Build
-      shell: bash
-      run: cmake --build "${{ steps.strings.outputs.build-output-dir }}" --config "${{ matrix.build_type }}"
+      run: cmake --build "${{ steps.strings.outputs.build-output-dir }}" --config ${{ matrix.build_type }}
 
     - name: Run Executable
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
       shell: bash
       run: |
         executable="frag_test"
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          executable_path="./${{ matrix.build_type }}/${executable}.exe"
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          path="./${{ matrix.build_type }}/${executable}.exe"
         else
-          executable_path="./${executable}"
+          path="./${executable}"
         fi
-        echo "Checking if executable exists: $executable_path"
-        if [ -f "$executable_path" ]; then
-          echo "Executable found, running it"
-          "$executable_path" || exit 0
+
+        if [ -f "$path" ]; then
+          echo "Running $path"
+          "$path" || exit 0
         else
-          echo "Executable not found: $executable_path"
+          echo "Executable not found: $path"
           exit 1
         fi
