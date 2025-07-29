@@ -1,0 +1,54 @@
+name: Build frag_test (Multiplatform with jemalloc)
+
+on:
+  push:
+    paths:
+      - '**.cpp'
+      - '**.h'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} (jemalloc: ${{ matrix.jemalloc }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        jemalloc: [ON, OFF]
+        exclude:
+          - os: windows-latest
+            jemalloc: ON  # jemalloc not pre-built for Windows
+
+    env:
+      BUILD_DIR: build
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install jemalloc (Linux/macOS)
+        if: matrix.jemalloc == 'ON' && (matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest')
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt update && sudo apt install -y libjemalloc-dev
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install jemalloc
+          fi
+
+      - name: Configure (CMake)
+        run: |
+          cmake -S . -B ${{ env.BUILD_DIR }} \
+            -DENABLE_JEMALLOC=${{ matrix.jemalloc }}
+
+      - name: Build
+        run: |
+          cmake --build ${{ env.BUILD_DIR }} --config Release
+
+      - name: Test executable
+        run: |
+          ./${{ env.BUILD_DIR }}/frag_test
+        shell: bash
