@@ -16,15 +16,31 @@ extern "C" {
 #define FREE(ptr) free(ptr)
 #endif
 
-#ifdef __linux__
+#if defined(__linux__)
 #include <malloc.h>
 size_t get_platform_memory_used() {
     struct mallinfo2 mi = mallinfo2();
     return static_cast<size_t>(mi.uordblks);
 }
+#elif defined(__APPLE__)
+#include <malloc/malloc.h>
+size_t get_platform_memory_used() {
+    malloc_statistics_t stats;
+    malloc_zone_statistics(malloc_default_zone(), &stats);
+    return stats.size_in_use;
+}
+#elif defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+size_t get_platform_memory_used() {
+    PROCESS_MEMORY_COUNTERS counters;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) {
+        return static_cast<size_t>(counters.WorkingSetSize);
+    }
+    return 0;
+}
 #else
 size_t get_platform_memory_used() {
-    // Fallback to tracked total_allocated (not accurate but placeholder)
     return 0;
 }
 #endif
@@ -33,7 +49,6 @@ size_t get_platform_memory_used() {
 void print_jemalloc_stats_stdout() {
     je_malloc_stats_print(nullptr, nullptr, nullptr);
 }
-
 #else
 void print_jemalloc_stats_stdout() {
     std::cout << "jemalloc not enabled; no stats available.\n";
