@@ -4,19 +4,32 @@
 #include <chrono>
 #include <cstdlib>
 
-#ifdef USE_JEMALLOC
-extern "C" {
-#include <jemalloc/jemalloc.h>
-}
-#define MALLOC(size) je_malloc(size)
-#define FREE(ptr) je_free(ptr)
-#else
-#define MALLOC(size) malloc(size)
-#define FREE(ptr) free(ptr)
-#endif
+// #ifdef USE_JEMALLOC
+// extern "C" {
+// #include <jemalloc/jemalloc.h>
+// }
+// #define MALLOC(size) je_malloc(size)
+// #define FREE(ptr) je_free(ptr)
+// #else
+// #define MALLOC(size) malloc(size)
+// #define FREE(ptr) free(ptr)
+// #endif
 
-#ifndef malloc_stats_print
-#define malloc_stats_print je_malloc_stats_print
+#if defined(USE_JEMALLOC)
+#define JEMALLOC_NO_DEMANGLE  // Ensures je_malloc etc. stay available
+#include <jemalloc/jemalloc.h>
+
+// jemalloc exports all symbols with je_ prefix.
+// If macros are not defined to remap them, use them directly.
+#define MALLOC(size) je_malloc(size)
+#define FREE(ptr)    je_free(ptr)
+#define MALLOC_STATS_PRINT() je_malloc_stats_print(nullptr, nullptr, nullptr)
+
+#else
+#include <cstdlib>
+#define MALLOC(size) malloc(size)
+#define FREE(ptr)    free(ptr)
+#define MALLOC_STATS_PRINT() ((void)0)
 #endif
 
 
@@ -37,6 +50,9 @@ size_t get_platform_memory_used() {
 #elif defined(_WIN32)
 #include <windows.h>
 #include <psapi.h>
+#ifndef malloc_stats_print
+#define malloc_stats_print je_malloc_stats_print
+#endif
 size_t get_platform_memory_used() {
     PROCESS_MEMORY_COUNTERS counters;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) {
