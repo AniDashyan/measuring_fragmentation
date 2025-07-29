@@ -6,34 +6,32 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(USE_JEMALLOC "Use jemalloc allocator" ON)
 
-if(USE_JEMALLOC)
-    if(WIN32 OR MINGW)
-        # Manually specify jemalloc include\\lib paths on Windows\\MinGW
-        set(JEMALLOC_INCLUDE_DIR "C:\\msys64\\home\\AniDashyan\\jemalloc\\include")
-        set(JEMALLOC_LIBRARY "C:\\msys64\\home\\AniDashyan\\jemalloc\\lib\\jemalloc.lib")
+add_executable(frag_test main.cpp)
 
-        if(EXISTS "${JEMALLOC_INCLUDE_DIR}\\jemalloc\\jemalloc.h")
+if(USE_JEMALLOC)
+    add_definitions(-DUSE_JEMALLOC)
+    if(WIN32 OR MINGW)
+        # Windows manual path
+        set(JEMALLOC_INCLUDE_DIR "C:/msys64/home/AniDashyan/jemalloc/include")
+        set(JEMALLOC_LIBRARY "C:/msys64/home/AniDashyan/jemalloc/lib/jemalloc.lib")
+
+        if(EXISTS "${JEMALLOC_INCLUDE_DIR}/jemalloc/jemalloc.h")
             message(STATUS "Using jemalloc from ${JEMALLOC_LIBRARY}")
-            include_directories(${JEMALLOC_INCLUDE_DIR})
-            add_compile_definitions(USE_JEMALLOC)
-            set(EXTRA_LIBS ${EXTRA_LIBS} ${JEMALLOC_LIBRARY})
+            target_include_directories(frag_test PRIVATE ${JEMALLOC_INCLUDE_DIR})
+            target_link_libraries(frag_test PRIVATE ${JEMALLOC_LIBRARY})
+            target_compile_definitions(frag_test PRIVATE USE_JEMALLOC)
         else()
             message("jemalloc not found at specified location!")
         endif()
     else()
-        # On Linux/macOS, use pkg-config to find jemalloc
+        # Unix/Linux/macOS
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(JEMALLOC REQUIRED jemalloc)
-        if(JEMALLOC_FOUND)
-            message(STATUS "Found jemalloc via pkg-config")
-            include_directories(${JEMALLOC_INCLUDE_DIRS})
-            add_compile_definitions(USE_JEMALLOC)
-            set(EXTRA_LIBS ${EXTRA_LIBS} ${JEMALLOC_LIBRARIES})
-        else()
-            message("jemalloc not found via pkg-config!")
-        endif()
+
+        message(STATUS "Found jemalloc via pkg-config")
+        target_include_directories(frag_test PRIVATE ${JEMALLOC_INCLUDE_DIRS})
+        target_link_directories(frag_test PRIVATE ${JEMALLOC_LIBRARY_DIRS})
+        target_link_libraries(frag_test PRIVATE ${JEMALLOC_LIBRARIES})
+        target_compile_definitions(frag_test PRIVATE USE_JEMALLOC)
     endif()
 endif()
-
-add_executable(frag_test main.cpp)
-target_link_libraries(frag_test ${EXTRA_LIBS})

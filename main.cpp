@@ -1,5 +1,4 @@
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <random>
 #include <chrono>
@@ -16,6 +15,12 @@ extern "C" {
 #define FREE(ptr) free(ptr)
 #endif
 
+#ifndef malloc_stats_print
+#define malloc_stats_print je_malloc_stats_print
+#endif
+
+
+// Platform-specific memory tracking
 #if defined(__linux__)
 #include <malloc.h>
 size_t get_platform_memory_used() {
@@ -27,7 +32,7 @@ size_t get_platform_memory_used() {
 size_t get_platform_memory_used() {
     malloc_statistics_t stats;
     malloc_zone_statistics(malloc_default_zone(), &stats);
-    return stats.size_in_use;
+    return static_cast<size_t>(stats.size_in_use);
 }
 #elif defined(_WIN32)
 #include <windows.h>
@@ -45,17 +50,18 @@ size_t get_platform_memory_used() {
 }
 #endif
 
+// Jemalloc stats printing
 #ifdef USE_JEMALLOC
 void print_jemalloc_stats_stdout() {
-    je_malloc_stats_print(nullptr, nullptr, nullptr);
+    malloc_stats_print(nullptr, nullptr, nullptr);
 }
 #else
 void print_jemalloc_stats_stdout() {
     std::cout << "jemalloc not enabled; no stats available.\n";
 }
-void print_jemalloc_stats_file(const char*) {}
 #endif
 
+// Allocation tracking
 struct Allocation {
     void* ptr;
     size_t size;
@@ -71,13 +77,12 @@ std::vector<Allocation> allocations;
 std::mt19937 rng(std::random_device{}());
 std::uniform_int_distribution<size_t> size_dist(MIN_SIZE, MAX_SIZE);
 std::uniform_int_distribution<int> op_dist(0, 1);
-
 size_t total_allocated = 0;
 
-// Approximate largest free block by binary search on malloc
+// Binary search approximation of largest free block
 size_t get_largest_free_block_approx() {
     size_t low = 1024;
-    size_t high = 10 * 1024 * 1024; // 10 MB
+    size_t high = 10 * 1024 * 1024;
     size_t result = 0;
     void* test_ptr = nullptr;
 
@@ -141,7 +146,6 @@ int main() {
         }
     }
 
-    // Free remaining allocations
     for (auto& a : allocations) {
         FREE(a.ptr);
     }
@@ -151,7 +155,6 @@ int main() {
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     std::cout << "Total run time: " << elapsed.count() << " ms\n";
 
-    // Final jemalloc stats dump
     std::cout << "\n=== Final jemalloc stats ===\n";
     print_jemalloc_stats_stdout();
 
