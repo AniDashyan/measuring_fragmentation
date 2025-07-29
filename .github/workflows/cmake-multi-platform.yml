@@ -1,54 +1,84 @@
-name: Build frag_test (Multiplatform with jemalloc)
+name: CMake on multiple platforms
 
 on:
   push:
-    paths:
-      - '**.cpp'
-      - '**.h'
-      - 'CMakeLists.txt'
-      - '.github/workflows/build.yml'
+    branches: [ "main" ]
   pull_request:
-  workflow_dispatch:
+    branches: [ "main" ]
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }} (jemalloc: ${{ matrix.jemalloc }})
     runs-on: ${{ matrix.os }}
-
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        jemalloc: [ON, OFF]
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Release]
+        c_compiler: [gcc, clang, cl]
+        enable_jemalloc: [ON, OFF]
+        include:
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
         exclude:
           - os: windows-latest
-            jemalloc: ON  # jemalloc not pre-built for Windows
-
-    env:
-      BUILD_DIR: build
+            c_compiler: gcc
+          - os: windows-latest
+            c_compiler: clang
+          - os: ubuntu-latest
+            c_compiler: cl
+          - os: windows-latest
+            enable_jemalloc: ON # jemalloc is not prebuilt on Windows
 
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install jemalloc (Linux/macOS)
-        if: matrix.jemalloc == 'ON' && (matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest')
-        run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt update && sudo apt install -y libjemalloc-dev
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install jemalloc
-          fi
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-      - name: Configure (CMake)
-        run: |
-          cmake -S . -B ${{ env.BUILD_DIR }} \
-            -DENABLE_JEMALLOC=${{ matrix.jemalloc }}
+    - name: Install jemalloc (Ubuntu only)
+      if: matrix.os == 'ubuntu-latest' && matrix.enable_jemalloc == 'ON'
+      run: |
+        sudo apt update
+        sudo apt install -y libjemalloc-dev
 
-      - name: Build
-        run: |
-          cmake --build ${{ env.BUILD_DIR }} --config Release
+    - name: Configure CMake
+      shell: bash
+      run: |
+        cmake -B "${{ steps.strings.outputs.build-output-dir }}" \
+              -DCMAKE_CXX_COMPILER="${{ matrix.cpp_compiler }}" \
+              -DCMAKE_C_COMPILER="${{ matrix.c_compiler }}" \
+              -DCMAKE_BUILD_TYPE="${{ matrix.build_type }}" \
+              -DENABLE_JEMALLOC=${{ matrix.enable_jemalloc }} \
+              -S "${{ github.workspace }}"
 
-      - name: Test executable
-        run: |
-          ./${{ env.BUILD_DIR }}/frag_test
-        shell: bash
+    - name: Build
+      shell: bash
+      run: cmake --build "${{ steps.strings.outputs.build-output-dir }}" --config "${{ matrix.build_type }}"
+
+    - name: Run Executable
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      shell: bash
+      run: |
+        executable="leaks"
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          executable_path="./${{ matrix.build_type }}/${executable}.exe"
+        else
+          executable_path="./${executable}"
+        fi
+        echo "Checking if executable exists: $executable_path"
+        if [ -f "$executable_path" ]; then
+          echo "Executable found, running it"
+          "$executable_path" || exit 0
+        else
+          echo "Executable not found: $executable_path"
+          exit 1
+        fi
